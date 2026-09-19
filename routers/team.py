@@ -1,0 +1,77 @@
+import hashlib
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from data.nodes_config import START_NODE_ID
+from database import get_db
+from models import Team
+from schemas import TeamCreateRequest, TeamNameUpdateRequest, TeamSessionResponse, TeamStartRequest
+from routers.utils import get_team_or_404, now_utc, team_status
+
+router = APIRouter(prefix="/api/team", tags=["team"])
+
+
+def hash_password(password: str | None) -> str | None:
+    if not password:
+        return None
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+@router.post("", response_model=TeamSessionResponse)
+async def create_team(body: TeamCreateRequest, db: AsyncSession = Depends(get_db)):
+    team = Team(
+        team_name=body.team_name.strip(),
+        password_hash=hash_password(body.password),
+        current_node_id=START_NODE_ID,
+        path=[],
+        total_score=0,
+    )
+    db.add(team)
+    await db.commit()
+    await db.refresh(team)
+    return TeamSessionResponse(
+        session_id=team.id,
+        team_name=team.team_name,
+        status=team_status(team),
+        current_node_id=None,
+    )
+
+
+@router.post("/start", response_model=TeamSessionResponse)
+async def start_team(body: TeamStartRequest, db: AsyncSession = Depends(get_db)):
+    team = await get_team_or_404(db, body.session_id)
+    if team.is_locked:
+        raise HTTPException(status_code=423, detail=team.lock_reason or "Team is locked")
+    if team.completed:
+        raise HTTPException(status_code=400, detail="Team has already completed the hunt")
+
+    if team.started_at is None:
+        team.started_at = now_utc()
+        team.current_node_id = START_NODE_ID
+        team.path = [START_NODE_ID]
+
+    await db.commit()
+    await db.refresh(team)
+    return TeamSessionResponse(
+        session_id=team.id,
+        team_name=team.team_name,
+        status=team_status(team),
+        current_node_id=team.current_node_id,
+    )
+
+
+@router.patch("/name", response_model=TeamSessionResponse)
+async def update_team_name(body: TeamNameUpdateRequest, db: AsyncSession = Depends(get_db)):
+    team = await get_team_or_404(db, body.session_id)
+    if team.started_at is not None:
+        raise HTTPException(status_code=403, detail="Team name can only be changed by admin after game starts")
+    team.team_name = body.team_name.strip()
+    await db.commit()
+    await db.refresh(team)
+    return TeamSessionResponse(
+        session_id=team.id,
+        team_name=team.team_name,
+        status=team_status(team),
+        current_node_id=team.current_node_id if team.started_at else None,
+    )
