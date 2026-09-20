@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 NodeType = Literal["D", "C", "Q", "R"]
 Difficulty = Literal["easy", "medium", "hard"]
-Direction = Literal["left", "right"]
+Direction = Literal["left", "right", "continue"]
 TeamStatus = Literal["REGISTERED", "ACTIVE", "COMPLETED", "LOCKED"]
 
 

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import settings
 from data.nodes_config import MAX_ATTEMPTS, NODES, SCORE_BY_ATTEMPT, get_available_routes, is_correct_answer
 from database import get_db
 from schemas import MoveRequest, MoveResponse, ValidateRequest, ValidateResponse
@@ -12,10 +13,10 @@ router = APIRouter(prefix="/api", tags=["validate"])
 
 @router.post("/validate", response_model=ValidateResponse)
 async def validate_answer(body: ValidateRequest, db: AsyncSession = Depends(get_db)):
-    """Validate the current node answer.
+    """Validate the current node answer or volunteer passcode.
 
-    This no longer moves the team directly. It only awards score and unlocks
-    movement. After three wrong attempts, movement unlocks with 0 points.
+    Awards score and unlocks movement. After three wrong attempts,
+    movement unlocks with 0 points.
     """
     node = NODES.get(body.node_id)
     if not node:
@@ -51,7 +52,9 @@ async def validate_answer(body: ValidateRequest, db: AsyncSession = Depends(get_
         raise HTTPException(status_code=400, detail="No attempts left")
 
     progress.attempts_used += 1
-    correct = is_correct_answer(body.node_id, body.answer)
+    input_ans = body.answer.strip().lower()
+    is_passcode_success = input_ans in settings.success_passcodes
+    correct = is_passcode_success or is_correct_answer(body.node_id, body.answer)
 
     if correct:
         points = SCORE_BY_ATTEMPT.get(progress.attempts_used, 0)

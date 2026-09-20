@@ -1,13 +1,15 @@
 import hashlib
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from data.nodes_config import START_NODE_ID
 from database import get_db
 from models import Team
-from schemas import TeamCreateRequest, TeamLoginRequest, TeamNameUpdateRequest, TeamSessionResponse, TeamStartRequest
+from schemas import TeamCreateRequest, TeamLoginRequest, TeamNameUpdateRequest, TeamOut, TeamSessionResponse, TeamStartRequest
 from routers.utils import get_team_or_404, now_utc, team_status
 
 router = APIRouter(prefix="/api/team", tags=["team"])
@@ -106,3 +108,17 @@ async def update_team_name(body: TeamNameUpdateRequest, db: AsyncSession = Depen
         status=team_status(team),
         current_node_id=team.current_node_id if team.started_at else None,
     )
+
+
+@router.get("/{session_id}", response_model=TeamOut)
+async def get_team_detail(session_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Team)
+        .options(selectinload(Team.moves), selectinload(Team.progress))
+        .where(Team.id == session_id)
+    )
+    team = result.scalar_one_or_none()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team session not found")
+    return team
+
