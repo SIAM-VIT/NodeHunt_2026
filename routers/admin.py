@@ -68,6 +68,20 @@ async def admin_update_team_name(
     return {"id": team.id, "team_name": team.team_name}
 
 
+@router.delete("/team/{team_id}", status_code=204)
+async def delete_team(
+    team_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(verify_admin),
+):
+    result = await db.execute(select(Team).where(Team.id == team_id))
+    team = result.scalar_one_or_none()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    await db.delete(team)
+    await db.commit()
+
+
 @router.delete("/teams", status_code=204)
 async def reset_all_teams(
     db: AsyncSession = Depends(get_db),

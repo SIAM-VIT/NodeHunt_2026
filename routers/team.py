@@ -1,12 +1,11 @@
-import hashlib
-
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from data.nodes_config import START_NODE_ID
 from database import get_db
 from models import Team
-from schemas import TeamCreateRequest, TeamNameUpdateRequest, TeamSessionResponse, TeamStartRequest
+from schemas import TeamCreateRequest, TeamLoginRequest, TeamNameUpdateRequest, TeamSessionResponse, TeamStartRequest
 from routers.utils import get_team_or_404, now_utc, team_status
 
 router = APIRouter(prefix="/api/team", tags=["team"])
@@ -35,6 +34,36 @@ async def create_team(body: TeamCreateRequest, db: AsyncSession = Depends(get_db
         team_name=team.team_name,
         status=team_status(team),
         current_node_id=None,
+    )
+
+
+@router.post("/login", response_model=TeamSessionResponse)
+async def login_team(body: TeamLoginRequest, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Team).where(func.lower(Team.team_name) == body.team_name.strip().lower()))
+    team = result.scalar_one_or_none()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found. Please register or contact an organizer.")
+
+    if team.is_locked:
+        raise HTTPException(status_code=423, detail=team.lock_reason or "Team is locked by admin")
+
+    if team.password_hash:
+        input_hash = hash_password(body.password)
+        if input_hash != team.password_hash:
+            raise HTTPException(status_code=401, detail="Invalid team password")
+
+    if team.started_at is None:
+        team.started_at = now_utc()
+        team.current_node_id = START_NODE_ID
+        team.path = [START_NODE_ID]
+        await db.commit()
+        await db.refresh(team)
+
+    return TeamSessionResponse(
+        session_id=team.id,
+        team_name=team.team_name,
+        status=team_status(team),
+        current_node_id=team.current_node_id or START_NODE_ID,
     )
 
 

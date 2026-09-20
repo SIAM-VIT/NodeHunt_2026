@@ -22,6 +22,11 @@ class TeamCreateRequest(BaseModel):
     password: str | None = Field(default=None, min_length=1, max_length=120)
 
 
+class TeamLoginRequest(BaseModel):
+    team_name: str = Field(min_length=1, max_length=120)
+    password: str = Field(min_length=1, max_length=120)
+
+
 class TeamStartRequest(BaseModel):
     session_id: uuid.UUID
 
